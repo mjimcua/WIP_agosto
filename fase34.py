@@ -12,11 +12,11 @@ def f3_ensamblaje(fina, v2, est, gu, cfg):
     fut["gu"] = fut[cfg.grano_uplift].astype(str).agg("|".join, axis=1)
     upl = gu.set_index(["gu", "comb_id"])["uplift_final"]
     fut["uplift"] = [upl.get((a, b), 1.0) for a, b in zip(fut["gu"], fut["comb_id"])]
-    fut["esperado_usd"] = fut[cfg.pipe_d] * fut["tasa"] * fut["uplift"]
+    fut["esperado_usd"] = fut[cfg.pipeline_usd_col] * fut["tasa"] * fut["uplift"]
     fut["etiqueta"] = ""
     for col, val, lab in cfg.semantic_labels:
         fut.loc[fut[col] == val, "etiqueta"] = lab
-    cfg.write(fut[["fu_key", "comb_key", "fs_id", cfg.period_col, cfg.pipe_d, "tasa", "uplift",
+    cfg.write(fut[["fu_key", "comb_key", "fs_id", cfg.period_col, cfg.pipeline_usd_col, "tasa", "uplift",
                    "esperado_usd", "etiqueta"]].assign(**{cfg.period_col: fut[cfg.period_col].astype(str)}), "forecast_detail")
     res = fut.groupby("etiqueta")["esperado_usd"].sum()
     print(f"[f3] forecast total ${fut['esperado_usd'].sum():,.0f} · por etiqueta: { {k or 'genuino': f'${x:,.0f}' for k,x in res.items()} }")
@@ -49,9 +49,9 @@ def f4_backtest(v2, est, cfg, horizontes=(1, 2, 3, 4)):
     hist = v2[(v2["universo"] == "normal") & v2["tasa"].notna()]
     series = {}
     for l2, sub in hist.groupby("fs_id_L2"):
-        agg = sub.groupby(cfg.period_col).apply(lambda x: (x[cfg.ren_u].sum(), x[cfg.pipe_u].sum()), include_groups=False)
+        agg = sub.groupby(cfg.period_col).apply(lambda x: (x[cfg.renewed_units_col].sum(), x[cfg.pipeline_units_col].sum()), include_groups=False)
         s = pd.Series({m: r / max(p, 1) for m, (r, p) in agg.items()}).sort_index()
-        n = sub.groupby(cfg.period_col)[cfg.pipe_u].sum().median()
+        n = sub.groupby(cfg.period_col)[cfg.pipeline_units_col].sum().median()
         if len(s) >= 10 and n >= cfg.support_floor / 2: series[l2] = s
     filas = []
     for l2, s in series.items():
@@ -108,7 +108,7 @@ def f4_tablas_fu(v2, fina, est, gu, bt, series, cfg):
                     period=str(objetivo), h=r["h"], tecnica_id=r["tecnica"],
                     tasa_pred=r["pred"], tasa_real_fu=round(float(m["tasa"]), 4),
                     abs_err_pp=round(100 * abs(r["pred"] - m["tasa"]), 2),
-                    err_usd=round(abs(r["pred"] - m["tasa"]) * m[cfg.pipe_d], 2)))
+                    err_usd=round(abs(r["pred"] - m["tasa"]) * m[cfg.pipeline_usd_col], 2)))
     btfu = pd.DataFrame(filas); cfg.write(btfu, "backtest_predictions_fu")
     # forecast por FU de projection: cada técnica aplicada a su horizonte + uplift de su comb → $
     upl = gu.set_index(["gu", "comb_id"])["uplift_final"]
@@ -127,7 +127,7 @@ def f4_tablas_fu(v2, fina, est, gu, bt, series, cfg):
             filas.append(dict(fu_key=r["fu_key"], fs_id=r["fs_id"], fs_id_L2=l2,
                 period=str(r[cfg.period_col]), h=h, tecnica_id=tec,
                 tasa_pred=round(float(pred), 4), uplift_pred=round(u, 3),
-                forecast_usd=round(float(r[cfg.pipe_d] * pred * u), 2)))
+                forecast_usd=round(float(r[cfg.pipeline_usd_col] * pred * u), 2)))
     ffu = pd.DataFrame(filas); cfg.write(ffu, "forecast_predictions_fu")
     print(f"[f4+] dim_tecnica {len(dim)} · backtest_fu {len(btfu)} filas · forecast_fu {len(ffu)} filas ({ffu['fu_key'].nunique()} FUs × técnicas × h)")
     return dim, btfu, ffu

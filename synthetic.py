@@ -30,8 +30,8 @@ def build_raw(seed=7):
                     ru = rng.binomial(n, p)
                     upl = 1.5 if (newc == 1 and disc == "d40") else (1.10 if disc == "d40" else 1.03)
                     rd = ru * auv * (upl + rng.normal(0, 0.02))
-                filas.append(dict(period=str(m), dataset_role=r, pipe_units=pu, pipe_usd=pd_,
-                    ren_units=ru, ren_usd=rd, is_current_month=int(str(m) == "2026-02"),
+                filas.append(dict(period=str(m), dataset_role=r, total_tr_units=pu, total_tr_usd=pd_,
+                    total_renewed_units=ru, total_renewed_usd=rd, is_current_month=int(str(m) == "2026-02"),
                     flag_time_series=ts, region=region, product=product, channel=channel,
                     dormant=dorm, softcancel=soft, no_instalado=noin, autorenew=auto,
                     discount=disc, newcust=newc))

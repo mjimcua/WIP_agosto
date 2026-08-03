@@ -8,10 +8,10 @@ def f0_load_and_validate(raw, cfg):
     cfg.validar_columnas(raw)
     df = raw.copy(); df[cfg.period_col] = pd.PeriodIndex(df[cfg.period_col].astype(str), freq="M")
     prob = []
-    for c in (cfg.pipe_u, cfg.pipe_d): 
+    for c in (cfg.pipeline_units_col, cfg.pipeline_usd_col): 
         if (df[c] < 0).any(): prob.append(f"{c} negativo")
-    ren = df[cfg.ren_u].fillna(0) > 0
-    if ((df.loc[ren, cfg.ren_d].fillna(0) <= 0)).any(): prob.append("renovación con USD<=0 (uplift 0 prohibido)")
+    ren = df[cfg.renewed_units_col].fillna(0) > 0
+    if ((df.loc[ren, cfg.renewed_usd_col].fillna(0) <= 0)).any(): prob.append("renovación con USD<=0 (uplift 0 prohibido)")
     if prob: raise ValueError("f0_load: " + "; ".join(prob))
     roles = df[cfg.role_col].value_counts().to_dict()
     for r in ("train", "test", "projection"):
@@ -32,7 +32,7 @@ def f0_split_and_key(df, cfg):
     vista = fina.groupby(keys, as_index=False, observed=True)[cfg.medidas].sum(min_count=1)
     vista["fu_id"] = vista[g].astype(str).agg("|".join, axis=1) + "|" + vista[cfg.period_col].astype(str)
     vista["fu_key"] = vista["fu_id"].map(hkey)
-    assert abs(vista[cfg.pipe_d].sum() - fina[cfg.pipe_d].sum()) < 1e-6, "conservación rota"
+    assert abs(vista[cfg.pipeline_usd_col].sum() - fina[cfg.pipeline_usd_col].sum()) < 1e-6, "conservación rota"
     lk_fu = vista[["fu_id", "fu_key"]].drop_duplicates()
     lk_comb = fina[["comb_id", "comb_key"]].drop_duplicates()
     print(f"[f0.2] fina {len(fina):,} → vista {len(vista):,} · conservación ✓ · lookups {len(lk_fu)}/{len(lk_comb)}")
@@ -55,9 +55,9 @@ def f0_universe_routes(vista, cfg):
 def f0_fu_summary(v, cfg):
     """0.4 la referencia inmutable: por fu_key, soporte y error binomial esperado (p=0.5, cota conservadora)."""
     s = v[["fu_key", "fu_id", cfg.period_col, cfg.role_col, cfg.cur_col, "universo", "ruta",
-           cfg.pipe_u, cfg.pipe_d]].copy()
-    n = s[cfg.pipe_u].clip(lower=1)
+           cfg.pipeline_units_col, cfg.pipeline_usd_col]].copy()
+    n = s[cfg.pipeline_units_col].clip(lower=1)
     s["se_pp_max"] = 100 * np.sqrt(.25 / n); s["moe_pp_max"] = cfg.z * s["se_pp_max"]
-    s["moe_usd_max"] = s["moe_pp_max"] / 100 * s[cfg.pipe_d]
+    s["moe_usd_max"] = s["moe_pp_max"] / 100 * s[cfg.pipeline_usd_col]
     s[cfg.period_col] = s[cfg.period_col].astype(str)
     return cfg.write(s, "forecast_units_raw_summary")

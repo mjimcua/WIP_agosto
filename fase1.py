@@ -23,17 +23,17 @@ def f1_series_and_gaps(v, cfg):
             filas.append(f)
     if filas: v = pd.concat([v, pd.DataFrame(filas)], ignore_index=True)
     v["tasa"] = np.where(v["sintetica"] == 1, 0.0,
-                np.where(v[cfg.pipe_u] > 0, v[cfg.ren_u] / v[cfg.pipe_u], np.nan))
+                np.where(v[cfg.pipeline_units_col] > 0, v[cfg.renewed_units_col] / v[cfg.pipeline_units_col], np.nan))
     v.loc[v[cfg.role_col] == "projection", "tasa"] = np.nan
     # summary por serie
     hist = v[(v["universo"] == "normal") & (v[cfg.role_col] != "projection")]
     g = hist.groupby(["fs_id", "fs_key"], as_index=False).agg(
-        n_avg=(cfg.pipe_u, lambda s: s[s > 0].median() if (s > 0).any() else 0),
+        n_avg=(cfg.pipeline_units_col, lambda s: s[s > 0].median() if (s > 0).any() else 0),
         meses=("sintetica", "size"), huecos=("sintetica", "sum"),
-        ren=(cfg.ren_u, "sum"), pipe=(cfg.pipe_u, "sum"))
+        ren=(cfg.renewed_units_col, "sum"), pipe=(cfg.pipeline_units_col, "sum"))
     g["tasa_hist"] = g["ren"] / g["pipe"].clip(lower=1)
     g["se_pp"] = 100 * np.sqrt((g["tasa_hist"] * (1 - g["tasa_hist"])).clip(lower=.0025) / g["n_avg"].clip(lower=1))
-    proj = v[v[cfg.role_col] == "projection"].groupby("fs_key")[cfg.pipe_d].sum().rename("usd_proj")
+    proj = v[v[cfg.role_col] == "projection"].groupby("fs_key")[cfg.pipeline_usd_col].sum().rename("usd_proj")
     g = g.merge(proj, on="fs_key", how="left").fillna({"usd_proj": 0})
     g["moe_usd"] = cfg.z * g["se_pp"] / 100 * g["usd_proj"]
     cfg.write(g.assign(), "forecast_series_raw_summary")
@@ -60,12 +60,12 @@ def f1_diagnose_round1(v, g, cfg):
         for t in meses:
             pas, act = sub[sub[cfg.period_col] < t], sub[sub[cfg.period_col] == t]
             if len(pas) < 6 or not len(act): continue
-            real = act[cfg.ren_u].sum() / act[cfg.pipe_u].sum()
-            plano = pas[cfg.ren_u].sum() / pas[cfg.pipe_u].sum()
-            th = pas.groupby("fs_id").apply(lambda s: s[cfg.ren_u].sum() / max(s[cfg.pipe_u].sum(), 1), include_groups=False)
-            w = act.groupby("fs_id")[cfg.pipe_u].sum()
+            real = act[cfg.renewed_units_col].sum() / act[cfg.pipeline_units_col].sum()
+            plano = pas[cfg.renewed_units_col].sum() / pas[cfg.pipeline_units_col].sum()
+            th = pas.groupby("fs_id").apply(lambda s: s[cfg.renewed_units_col].sum() / max(s[cfg.pipeline_units_col].sum(), 1), include_groups=False)
+            w = act.groupby("fs_id")[cfg.pipeline_units_col].sum()
             seg = float(np.average(th.reindex(w.index).fillna(plano), weights=w))
-            pipe_d = act[cfg.pipe_d].sum()
+            pipe_d = act[cfg.pipeline_usd_col].sum()
             filas.append(dict(celda=celda, mes=str(t), err_plano_pp=100*(plano-real), err_seg_pp=100*(seg-real),
                               ahorro_usd=(abs(plano-real)-abs(seg-real))*pipe_d))
     cf = pd.DataFrame(filas); cfg.write(cf, "simpson_contrafactual")
@@ -109,14 +109,14 @@ def f1_improve_support(v, g, e2, cfg):
     v2 = v.merge(est[["fs_id_L1", "fs_id_L2"]], on="fs_id", how="left")
     hist = v2[(v2["universo"] == "normal") & v2["tasa"].notna()]
     def pool(idcol):
-        pm = hist.groupby([idcol, cfg.period_col]).agg(ren=(cfg.ren_u, "sum"),
-                                                       pipe=(cfg.pipe_u, "sum")).reset_index()
+        pm = hist.groupby([idcol, cfg.period_col]).agg(ren=(cfg.renewed_units_col, "sum"),
+                                                       pipe=(cfg.pipeline_units_col, "sum")).reset_index()
         p = pm.groupby(idcol).agg(ren=("ren", "sum"), pipe=("pipe", "sum"),
                                   n=("pipe", lambda s: s[s > 0].median() if (s > 0).any() else 0))
         p["tasa"] = p["ren"] / p["pipe"].clip(lower=1); return p
     p1, p2 = pool("fs_id_L1"), pool("fs_id_L2")
     celda = hist.assign(_c=hist[cfg.mandatory].astype(str).agg("|".join, axis=1)).groupby("_c").agg(
-        ren=(cfg.ren_u, "sum"), pipe=(cfg.pipe_u, "sum"))
+        ren=(cfg.renewed_units_col, "sum"), pipe=(cfg.pipeline_units_col, "sum"))
     celda["tasa"] = celda["ren"] / celda["pipe"].clip(lower=1)
     def se(t, n):
         pq = max(t * (1 - t), .0025)
@@ -165,8 +165,8 @@ def f1_diagnose_round2(v2, est, cfg):
     hist = v2[(v2["universo"] == "normal") & v2["tasa"].notna()]
     filas = []
     for l2, sub in hist.groupby("fs_id_L2"):
-        s = sub.groupby(cfg.period_col).apply(lambda x: x[cfg.ren_u].sum() / max(x[cfg.pipe_u].sum(), 1), include_groups=False)
-        n = sub.groupby(cfg.period_col)[cfg.pipe_u].sum().median()
+        s = sub.groupby(cfg.period_col).apply(lambda x: x[cfg.renewed_units_col].sum() / max(x[cfg.pipeline_units_col].sum(), 1), include_groups=False)
+        n = sub.groupby(cfg.period_col)[cfg.pipeline_units_col].sum().median()
         cota = 100 * np.sqrt(.25 / max(n, 1)) * cfg.z
         gate, est_amp, pend = "apto_promedio", 0.0, 0.0
         if n < cfg.support_floor: gate = "soporte"

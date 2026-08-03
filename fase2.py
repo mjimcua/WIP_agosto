@@ -3,14 +3,14 @@ import numpy as np, pandas as pd
 
 def f2_uplift_fine(fina, cfg):
     """2.1 grano uplift × comb, SOLO renovadores; uplift ponderado por $; n = renovadores."""
-    r = fina[(fina[cfg.ren_u].fillna(0) > 0)].copy()
-    r["auv_p"] = r[cfg.pipe_d] / r[cfg.pipe_u].clip(lower=1)
-    r["upl"] = (r[cfg.ren_d] / r[cfg.ren_u]) / r["auv_p"]
+    r = fina[(fina[cfg.renewed_units_col].fillna(0) > 0)].copy()
+    r["auv_p"] = r[cfg.pipeline_usd_col] / r[cfg.pipeline_units_col].clip(lower=1)
+    r["upl"] = (r[cfg.renewed_usd_col] / r[cfg.renewed_units_col]) / r["auv_p"]
     r["gu"] = r[cfg.grano_uplift].astype(str).agg("|".join, axis=1)
     g = r.groupby(["gu", "comb_id"], as_index=False).agg(
-        n_ren=(cfg.ren_u, "sum"), meses=(cfg.period_col, "nunique"),
-        upl_w=(cfg.ren_d, "sum"), base=(cfg.ren_u, lambda s: 1))
-    den = r.groupby(["gu", "comb_id"]).apply(lambda x: (x[cfg.ren_u] * x["auv_p"]).sum(), include_groups=False).rename("den").reset_index()
+        n_ren=(cfg.renewed_units_col, "sum"), meses=(cfg.period_col, "nunique"),
+        upl_w=(cfg.renewed_usd_col, "sum"), base=(cfg.renewed_units_col, lambda s: 1))
+    den = r.groupby(["gu", "comb_id"]).apply(lambda x: (x[cfg.renewed_units_col] * x["auv_p"]).sum(), include_groups=False).rename("den").reset_index()
     g = g.merge(den, on=["gu", "comb_id"]); g["uplift"] = g["upl_w"] / g["den"].clip(lower=1e-9)
     s = r.groupby(["gu", "comb_id"])["upl"].std().rename("s").reset_index()
     g = g.merge(s, on=["gu", "comb_id"]).fillna({"s": 0})
@@ -22,7 +22,7 @@ def f2_diagnose(g, r, cfg):
     """2.2 vara continua + η²-uplift por eje (extra_revalorizacion), pesos = $ renovado."""
     from fase1 import _eta2_w
     base = r.groupby(["gu", "comb_id"] + cfg.extra_revalorizacion, as_index=False).agg(
-        u=("upl", "mean"), w=(cfg.ren_d, "sum"))
+        u=("upl", "mean"), w=(cfg.renewed_usd_col, "sum"))
     e2 = {d: _eta2_w(base, d, "u", "w") for d in cfg.extra_revalorizacion}
     print(f"[f2.2] η²-uplift: { {k: round(x,3) for k,x in e2.items()} } · celdas con s alta y n decente = heterogeneidad interna")
     return e2
